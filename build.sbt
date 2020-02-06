@@ -8,5 +8,6 @@ ThisBuild / organizationName := "golomb"
 lazy val root = (project in file("."))
   .settings(
     name := "golomb",
-    libraryDependencies += scalaTest % Test
+    libraryDependencies += scalaTest % Test,
+    libraryDependencies ++= Seq(akkaActor, akkaHttp, akkaStream)
   )

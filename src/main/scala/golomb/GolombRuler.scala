@@ -20,7 +20,7 @@ import ilog.cp._
   * For order 5: 2 solutions 0 1 4 9 11 ; 0 2 7 8 11
   * For order 10: 1 solution: 0 1 6 10 23 26 34 41 53 55
  */
-object GolombRuler extends App {
+object GolombRuler {
   System.loadLibrary("cp_wrap_cpp_java1290")
   solve()
 
@@ -40,9 +40,9 @@ object GolombRuler extends App {
     Objectives:
       - Minimize length (the max of the marks)
    */
-  def solve(): Unit = {
+  def solve(): String = {
     val model: IloCP = new IloCP()
-    val order = 8
+    val order = 3
     println(s"Solving for order $order...")
 
     // Dvars: All marks
@@ -71,7 +71,14 @@ object GolombRuler extends App {
 
     // Solve
     model.setParameter(IloCP.DoubleParam.TimeLimit, 60 * 5)
-    model.solve()
-    marks.map(model.getValue(_)).sorted.foreach(println)
+    val res: String =
+      if (model.solve()) {
+        marks.map(model.getValue(_)).sorted.foreach(println)
+        marks.map(model.getValue(_).toString).sorted.mkString(", ")
+      } else {
+        "Failed to solve"
+      }
+    model.end()
+    res
   }
 }
