@@ -17,8 +17,8 @@ import ilog.cp._
   at 0 and the next mark at the smaller of its two possible values.
 
   Examples:
-  * For order 5: 2 solutions 0 1 4 9 11 ; 0 2 7 8 11
-  * For order 10: 1 solution: 0 1 6 10 23 26 34 41 53 55
+  * For order 5: 2 optimal and perfect solutions 0 1 4 9 11 ; 0 2 7 8 11
+  * For order 10: 1 optimal solution 0 1 6 10 23 26 34 41 53 55
  */
 object GolombRuler {
   System.loadLibrary("cp_wrap_cpp_java1290")
@@ -42,7 +42,7 @@ object GolombRuler {
    */
   def solve(): String = {
     val model: IloCP = new IloCP()
-    val order = 3
+    val order = 6
     println(s"Solving for order $order...")
 
     // Dvars: All marks
@@ -69,12 +69,44 @@ object GolombRuler {
       )
     )
 
+    class SearchCallback extends IloCP.Callback {
+      override def invoke(model: IloCP, i: Int): Unit = {
+        if (i == IloCP.Callback.Periodic) {
+          println("*** Periodic")
+          println("Values: ")
+          marks.foreach { m =>
+            try {
+              println(model.getValue(m))
+            } catch {
+              case _ =>
+                println("none")
+            }
+          }
+        } else if (i == IloCP.Callback.ObjBound) {
+          println("*** ObjBound - New lower bound")
+          println(model.getObjBound())
+        } else if (i == IloCP.Callback.Solution) {
+          println("*** Solution")
+          val markValues = marks.map(model.getValue(_)).sorted.mkString(", ")
+          println(markValues)
+        } else if (i == IloCP.Callback.EndSearch) {
+          println("*** EndSearch")
+          println("Num solutions: ")
+          println(model.getInfo(IloCP.IntInfo.NumberOfSolutions))
+          println("SolveTime (seconds): ")
+          println(model.getInfo(IloCP.DoubleInfo.SolveTime))
+        }
+        model.getInfo(IloCP.IntInfo.SearchStatus)
+      }
+    }
+    model.addCallback(new SearchCallback)
+
     // Solve
     model.setParameter(IloCP.DoubleParam.TimeLimit, 60 * 5)
     val res: String =
       if (model.solve()) {
         marks.map(model.getValue(_)).sorted.foreach(println)
-        marks.map(model.getValue(_).toString).sorted.mkString(", ")
+        marks.map(model.getValue(_)).sorted.mkString(", ")
       } else {
         "Failed to solve"
       }
