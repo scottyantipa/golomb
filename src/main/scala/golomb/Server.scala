@@ -33,7 +33,6 @@ object Server extends App {
     var golombActor: ActorRef = null // TODO this is ugly, will cause race condition
     p.future.map { queue =>
       golombActor = system.actorOf(Props(classOf[GolombRulerActor], queue))
-      golombActor ! "test"
     }
 
 

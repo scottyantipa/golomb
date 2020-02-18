@@ -41,9 +41,9 @@ object GolombRuler {
     Objectives:
       - Minimize length (the max of the marks)
    */
-  def solve(resultsQueue: SourceQueueWithComplete[String]): String = {
+  def solve(resultsQueue: SourceQueueWithComplete[String]): Unit = {
     val model: IloCP = new IloCP()
-    val order = 4
+    val order = 7
     println(s"Solving for order $order...")
 
     // Dvars: All marks
@@ -72,27 +72,25 @@ object GolombRuler {
 
     class SearchCallback extends IloCP.Callback {
       override def invoke(model: IloCP, i: Int): Unit = {
-        if (i == IloCP.Callback.Periodic) {
-          println("*** Periodic")
-          resultsQueue.offer("Periodic")
-          println("Values: ")
-          marks.foreach { m =>
+        if (i == IloCP.Callback.StartSearch) {
+          resultsQueue.offer("StartSearch")
+        } else if (i == IloCP.Callback.Periodic) {
+          val current: Array[Double] = marks.map { m =>
             try {
-              println(model.getValue(m))
+              model.getValue(m)
             } catch {
-              case _ =>
-                println("none")
+              case _: Throwable =>
+                0
             }
           }
+          val marksStr = current.sorted.mkString(", ")
+          resultsQueue.offer(s"Periodic:$marksStr")
         } else if (i == IloCP.Callback.ObjBound) {
-          println("*** ObjBound - New lower bound")
-          resultsQueue.offer("ObjBound")
-          println(model.getObjBound())
+          val bound = model.getObjBound()
+          resultsQueue.offer(s"ObjBound:$bound")
         } else if (i == IloCP.Callback.Solution) {
-          println("*** Solution")
           val markValues = marks.map(model.getValue(_)).sorted.mkString(", ")
-          println(markValues)
-          resultsQueue.offer(s"New Solution: $markValues")
+          resultsQueue.offer(s"NewSolution:$markValues")
         } else if (i == IloCP.Callback.EndSearch) {
           resultsQueue.offer("EndSearch")
           println("*** EndSearch")
@@ -107,26 +105,55 @@ object GolombRuler {
 
     // Solve
     model.setParameter(IloCP.DoubleParam.TimeLimit, 60 * 5)
-    val res: String =
-      if (model.solve()) {
-        marks.map(model.getValue(_)).sorted.foreach(println)
-        marks.map(model.getValue(_)).sorted.mkString(", ")
-      } else {
-        "Failed to solve"
-      }
+    if (model.solve()) {
+      marks.map(model.getValue(_)).sorted.foreach(println)
+      val solutionStr = marks.map(model.getValue(_)).sorted.mkString(", ")
+      resultsQueue.offer(s"Final:$solutionStr")
+    } else {
+      resultsQueue.offer("Final:None")
+    }
     model.end()
-    res
+  }
+
+  def solutionStr(marks: Array[IloIntVar], model: IloCP): String = {
+    val current: Array[Double] = marks.map { m =>
+      try {
+        model.getValue(m)
+      } catch {
+        case _: Throwable =>
+          0 // ugly default, necessary when uninitialized
+      }
+    }
+    current.sorted.mkString(", ")
   }
 }
 
+case object GolombStateIdle
+case object GolombStateSolving
+
 class GolombRulerActor(resultsQueue: SourceQueueWithComplete[String]) extends Actor {
-  val solving: Boolean = false
+  var solving: Boolean = false
+
   def receive = {
     case "test" => println("*** Actor receive test")
-    case "test2" => println("*** Actor receive test2")
+    case "state" => {
+      println("*** Actor receive state")
+      if (solving) {
+        sender() ! GolombStateSolving
+      } else {
+        sender() ! GolombStateIdle
+      }
+    }
     case "solve" => {
-      println("*** Actor receive solve")
-      GolombRuler.solve(resultsQueue)
+      if (solving) {
+        sender() ! GolombStateSolving
+      } else {
+        println("*** Actor receive solve")
+        solving = true
+        sender() ! GolombStateSolving
+        GolombRuler.solve(resultsQueue)
+        solving = false
+      }
     }
     case _: String => println("Unexpected message received")
   }
