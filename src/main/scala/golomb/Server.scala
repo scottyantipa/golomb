@@ -1,7 +1,7 @@
 package golomb
 
 import akka.{Done, NotUsed}
-import akka.actor.{Actor, ActorSystem}
+import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.ws.{Message, TextMessage}
@@ -21,8 +21,8 @@ object Server extends App {
     implicit val materializer = ActorMaterializer()
     implicit val executionContext = system.dispatcher
 
-    // The source to broadcast (just ints for simplicity)
-    val dataSource = Source.queue[String](1000, OverflowStrategy.backpressure).throttle(1, 1 seconds, 1, ThrottleMode.Shaping).map(_.toString)
+    // The source to broadcast
+    val dataSource = Source.queue[String](1000, OverflowStrategy.backpressure)
     val p = Promise[SourceQueueWithComplete[String]]
     val s = dataSource.mapMaterializedValue { m =>
       p.trySuccess(m)
@@ -30,16 +30,12 @@ object Server extends App {
     }
 
     // get the materialized queue so we can push into it
+    var golombActor: ActorRef = null // TODO this is ugly, will cause race condition
     p.future.map { queue =>
-      (0 to 10000).foreach { i =>
-        queue.offer(s"hello $i").map {
-          case QueueOfferResult.Enqueued => println(s"enqueued")
-          case QueueOfferResult.Dropped => println(s"dropped")
-          case QueueOfferResult.Failure(ex) => println(s"Offer failed ${ex.getMessage}")
-          case QueueOfferResult.QueueClosed => println("Source Queue closed")
-        }
-      }
+      golombActor = system.actorOf(Props(classOf[GolombRulerActor], queue))
+      golombActor ! "test"
     }
+
 
     // Go via BroadcastHub to allow multiple clients to connect
     val runnableGraph: RunnableGraph[Source[String, NotUsed]] =
@@ -61,8 +57,8 @@ object Server extends App {
         }
       } ~ path("solve") {
         get {
-          val solution: String = GolombRuler.solve()
-          complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, s"<h1>$solution</h1>"))
+          golombActor ! "solve"
+          complete(HttpEntity(ContentTypes.`application/json`, "{\"status\": \"solving\"}"))
         }
       } ~ path("wstest0") {
         get {
@@ -71,7 +67,7 @@ object Server extends App {
             complete(upgrade.handleMessagesWithSinkSource(Sink.ignore, numbers))
           }
         }
-      } ~ path("bhub") {
+      } ~ path("ws") {
         get {
           handleWebSocketMessages(wsHandler)
         }

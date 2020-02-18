@@ -1,5 +1,7 @@
 package golomb
 
+import akka.actor.Actor
+import akka.stream.scaladsl.SourceQueueWithComplete
 import ilog.concert._
 import ilog.cp._
 
@@ -22,7 +24,6 @@ import ilog.cp._
  */
 object GolombRuler {
   System.loadLibrary("cp_wrap_cpp_java1290")
-  solve()
 
   /*
     The problem statement:
@@ -40,9 +41,9 @@ object GolombRuler {
     Objectives:
       - Minimize length (the max of the marks)
    */
-  def solve(): String = {
+  def solve(resultsQueue: SourceQueueWithComplete[String]): String = {
     val model: IloCP = new IloCP()
-    val order = 6
+    val order = 4
     println(s"Solving for order $order...")
 
     // Dvars: All marks
@@ -73,6 +74,7 @@ object GolombRuler {
       override def invoke(model: IloCP, i: Int): Unit = {
         if (i == IloCP.Callback.Periodic) {
           println("*** Periodic")
+          resultsQueue.offer("Periodic")
           println("Values: ")
           marks.foreach { m =>
             try {
@@ -84,19 +86,21 @@ object GolombRuler {
           }
         } else if (i == IloCP.Callback.ObjBound) {
           println("*** ObjBound - New lower bound")
+          resultsQueue.offer("ObjBound")
           println(model.getObjBound())
         } else if (i == IloCP.Callback.Solution) {
           println("*** Solution")
           val markValues = marks.map(model.getValue(_)).sorted.mkString(", ")
           println(markValues)
+          resultsQueue.offer(s"New Solution: $markValues")
         } else if (i == IloCP.Callback.EndSearch) {
+          resultsQueue.offer("EndSearch")
           println("*** EndSearch")
           println("Num solutions: ")
           println(model.getInfo(IloCP.IntInfo.NumberOfSolutions))
           println("SolveTime (seconds): ")
           println(model.getInfo(IloCP.DoubleInfo.SolveTime))
         }
-        model.getInfo(IloCP.IntInfo.SearchStatus)
       }
     }
     model.addCallback(new SearchCallback)
@@ -112,5 +116,18 @@ object GolombRuler {
       }
     model.end()
     res
+  }
+}
+
+class GolombRulerActor(resultsQueue: SourceQueueWithComplete[String]) extends Actor {
+  val solving: Boolean = false
+  def receive = {
+    case "test" => println("*** Actor receive test")
+    case "test2" => println("*** Actor receive test2")
+    case "solve" => {
+      println("*** Actor receive solve")
+      GolombRuler.solve(resultsQueue)
+    }
+    case _: String => println("Unexpected message received")
   }
 }
