@@ -41,9 +41,13 @@ object GolombRuler {
     Objectives:
       - Minimize length (the max of the marks)
    */
-  def solve(resultsQueue: SourceQueueWithComplete[String]): Unit = {
+
+  /*
+    @param resultsQueue Queue to push events to during solve
+    @param timeout Maximum time to spend in solve (seconds)
+   */
+  def solve(resultsQueue: SourceQueueWithComplete[String], order: Int = 5, timeout: Int = 30): Unit = {
     val model: IloCP = new IloCP()
-    val order = 7
     println(s"Solving for order $order...")
 
     // Dvars: All marks
@@ -104,7 +108,7 @@ object GolombRuler {
     model.addCallback(new SearchCallback)
 
     // Solve
-    model.setParameter(IloCP.DoubleParam.TimeLimit, 60 * 5)
+    model.setParameter(IloCP.DoubleParam.TimeLimit, timeout)
     if (model.solve()) {
       marks.map(model.getValue(_)).sorted.foreach(println)
       val solutionStr = marks.map(model.getValue(_)).sorted.mkString(", ")
@@ -130,11 +134,22 @@ object GolombRuler {
 
 case object GolombStateIdle
 case object GolombStateSolving
+case class StartSolve(order: Int, timeout: Int)
 
 class GolombRulerActor(resultsQueue: SourceQueueWithComplete[String]) extends Actor {
   var solving: Boolean = false
 
   def receive = {
+    case StartSolve(order, timeout) =>
+      if (solving) {
+        sender() ! GolombStateSolving
+      } else {
+        println("*** Actor receive solve")
+        solving = true
+        sender() ! GolombStateSolving
+        GolombRuler.solve(resultsQueue, order, timeout)
+        solving = false
+      }
     case "test" => println("*** Actor receive test")
     case "state" => {
       println("*** Actor receive state")
@@ -142,17 +157,6 @@ class GolombRulerActor(resultsQueue: SourceQueueWithComplete[String]) extends Ac
         sender() ! GolombStateSolving
       } else {
         sender() ! GolombStateIdle
-      }
-    }
-    case "solve" => {
-      if (solving) {
-        sender() ! GolombStateSolving
-      } else {
-        println("*** Actor receive solve")
-        solving = true
-        sender() ! GolombStateSolving
-        GolombRuler.solve(resultsQueue)
-        solving = false
       }
     }
     case _: String => println("Unexpected message received")

@@ -8,6 +8,7 @@ import akka.http.scaladsl.model.ws.{Message, TextMessage}
 import akka.http.scaladsl.server.Directives._
 import akka.stream.{ActorMaterializer, OverflowStrategy, QueueOfferResult, ThrottleMode}
 import akka.stream.scaladsl._
+import StatusCodes._
 
 import scala.concurrent.duration._
 import scala.collection.immutable.Queue
@@ -54,10 +55,26 @@ object Server extends App {
         get {
           complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "<h1>pong</h1>"))
         }
+      } ~ path("crash") {
+        get {
+          sys.error("Internal Server Error")
+        }
       } ~ path("solve") {
         get {
-          golombActor ! "solve"
-          complete(HttpEntity(ContentTypes.`application/json`, "{\"status\": \"solving\"}"))
+          parameters("order", "timeout") { (order, timeout) =>
+            val validatedOrder = order.toInt
+            if (validatedOrder <= 0) {
+              complete(HttpResponse(BadRequest, entity = "'order' must be non negative integer"))
+              return
+            }
+            val validatedTimeout = timeout.toInt
+            if (validatedTimeout <= 0) {
+              complete(HttpResponse(BadRequest, entity = "'timeout' must be non negative integer"))
+              return
+            }
+            golombActor ! StartSolve(validatedOrder, timeout.toInt)
+            complete(HttpEntity(ContentTypes.`application/json`, "{\"status\": \"solving\"}"))
+          }
         }
       } ~ path("wstest0") {
         get {
