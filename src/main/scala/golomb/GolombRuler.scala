@@ -88,6 +88,8 @@ object GolombRuler {
             }
           }
           val marksStr = current.sorted.mkString(", ")
+          val currentOrder: Double = current.max(cmp = Ordering.Double)
+          resultsQueue.offer(s"NewOrder:$currentOrder")
           resultsQueue.offer(s"Periodic:$marksStr")
         } else if (i == IloCP.Callback.ObjBound) {
           val bound = model.getObjBound()
